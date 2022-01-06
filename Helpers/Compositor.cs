@@ -1,4 +1,4 @@
-﻿/**
+/**
  *   Copyright (C) 2021 okaygo
  *
  *   https://github.com/misterokaygo/MapAssist/
@@ -36,11 +36,12 @@ namespace MapAssist.Helpers
 {
     public class Compositor : IDisposable
     {
-
+        private static readonly NLog.Logger _log = NLog.LogManager.GetCurrentClassLogger();
         public GameData _gameData;
         public readonly AreaData _areaData;
         private readonly IReadOnlyList<PointOfInterest> _pointsOfInterest;
         ExocetFont _exocetFont;
+        FormalFont _formalFont;
 
         private Matrix3x2 mapTransformMatrix;
         private Matrix3x2 areaTransformMatrix;
@@ -64,6 +65,7 @@ namespace MapAssist.Helpers
 
             _pointsOfInterest = pointsOfInterest;
             _exocetFont = new ExocetFont();
+            _formalFont = new FormalFont();
         }
 
         public void Init(Graphics gfx, GameData gameData, Rectangle drawBounds)
@@ -163,7 +165,7 @@ namespace MapAssist.Helpers
 
             foreach (var (gamemap, origin) in gamemaps)
             {
-                DrawBitmap(gfx, gamemap, origin.Subtract(_areaData.Origin).Subtract(_areaData.MapPadding, _areaData.MapPadding), MapAssistConfiguration.Loaded.RenderingConfiguration.Opacity);
+                DrawBitmap(gfx, gamemap, origin.Subtract(_areaData.Origin).Subtract(_areaData.MapPadding, _areaData.MapPadding), (float)MapAssistConfiguration.Loaded.RenderingConfiguration.Opacity);
             }
 
             renderTarget.PopAxisAlignedClip();
@@ -188,6 +190,9 @@ namespace MapAssist.Helpers
 
         private void DrawPointsOfInterest(Graphics gfx)
         {
+            var drawPoiIcons = new List<(IconRendering, Point)>();
+            var drawPoiLabels = new List<(PointOfInterestRendering, Point, string, Color?)>();
+
             foreach (var poi in _pointsOfInterest)
             {
                 if (poi.PoiMatchesPortal(_gameData.Objects, _gameData.Difficulty))
@@ -197,7 +202,7 @@ namespace MapAssist.Helpers
 
                 if (poi.RenderingSettings.CanDrawIcon())
                 {
-                    DrawIcon(gfx, poi.RenderingSettings, poi.Position);
+                    drawPoiIcons.Add((poi.RenderingSettings, poi.Position));
                 }
             }
 
@@ -225,11 +230,11 @@ namespace MapAssist.Helpers
                     if (poi.RenderingSettings.CanDrawLine() && poi.RenderingSettings.CanDrawLabel())
                     {
                         var poiPosition = MovePointInBounds(poi.Position, _gameData.PlayerPosition);
-                        DrawText(gfx, poi.RenderingSettings, poiPosition, poi.Label);
+                        drawPoiLabels.Add((poi.RenderingSettings, poiPosition, poi.Label, null));
                     }
                     else if (poi.RenderingSettings.CanDrawLabel())
                     {
-                        DrawText(gfx, poi.RenderingSettings, poi.Position, poi.Label);
+                        drawPoiLabels.Add((poi.RenderingSettings, poi.Position, poi.Label, null));
                     }
                 }
             }
@@ -240,35 +245,19 @@ namespace MapAssist.Helpers
                 var foundInArea = areasToRender.FirstOrDefault(area => area.IncludesPoint(gameObject.Position));
                 if (foundInArea != null && foundInArea.Area != _areaData.Area && !AreaExtensions.RequiresStitching(foundInArea.Area)) continue; // Don't show gamedata objects in another area if areas aren't stitched together
 
-                if (gameObject.IsShrine())
+                if (gameObject.IsShrine() || gameObject.IsWell())
                 {
                     if (MapAssistConfiguration.Loaded.MapConfiguration.Shrine.CanDrawIcon())
                     {
-                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position);
+                        drawPoiIcons.Add((MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position));
                     }
 
                     if (MapAssistConfiguration.Loaded.MapConfiguration.Shrine.CanDrawLabel())
                     {
-                        var label = Enum.GetName(typeof(ShrineType), gameObject.ObjectData.InteractType);
-
-                        DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position, label);
+                        var label = Shrine.ShrineDisplayName(gameObject);
+                        drawPoiLabels.Add((MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position, label, null));
                     }
 
-                    continue;
-                }
-
-                if(gameObject.ObjectTxt.ObjectType == "Well")
-                {
-                    if (MapAssistConfiguration.Loaded.MapConfiguration.Shrine.CanDrawIcon())
-                    {
-                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position);
-                    }
-
-                    if (MapAssistConfiguration.Loaded.MapConfiguration.Shrine.CanDrawLabel())
-                    {
-                        var label = "Well"; //update this when language changes are ready for merge
-                        DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Shrine, gameObject.Position, label);
-                    }
                     continue;
                 }
                 
@@ -278,7 +267,7 @@ namespace MapAssist.Helpers
 
                     if (MapAssistConfiguration.Loaded.MapConfiguration.Portal.CanDrawIcon())
                     {
-                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Portal, gameObject.Position);
+                        drawPoiIcons.Add((MapAssistConfiguration.Loaded.MapConfiguration.Portal, gameObject.Position));
                     }
 
                     if (MapAssistConfiguration.Loaded.MapConfiguration.Portal.CanDrawLabel(destinationArea))
@@ -287,7 +276,7 @@ namespace MapAssist.Helpers
                         var label = Utils.GetPortalName(destinationArea, _gameData.Difficulty, playerName);
 
                         if (string.IsNullOrWhiteSpace(label) || label == "None") continue;
-                        DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Portal, gameObject.Position, label);
+                        drawPoiLabels.Add((MapAssistConfiguration.Loaded.MapConfiguration.Portal, gameObject.Position, label, null));
                     }
 
                     continue;
@@ -299,7 +288,7 @@ namespace MapAssist.Helpers
                     {
                         if (MapAssistConfiguration.Loaded.MapConfiguration.TrappedChest.CanDrawIcon())
                         {
-                            DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.TrappedChest, gameObject.Position);
+                            drawPoiIcons.Add((MapAssistConfiguration.Loaded.MapConfiguration.TrappedChest, gameObject.Position));
                         }
                     }
 
@@ -307,52 +296,85 @@ namespace MapAssist.Helpers
                     {
                         if (MapAssistConfiguration.Loaded.MapConfiguration.LockedChest.CanDrawIcon())
                         {
-                            DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.LockedChest, gameObject.Position);
+                            drawPoiIcons.Add((MapAssistConfiguration.Loaded.MapConfiguration.LockedChest, gameObject.Position));
                         }
                     }
                     else
                     {
                         if (MapAssistConfiguration.Loaded.MapConfiguration.NormalChest.CanDrawIcon())
                         {
-                            DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.NormalChest, gameObject.Position);
+                            drawPoiIcons.Add((MapAssistConfiguration.Loaded.MapConfiguration.NormalChest, gameObject.Position));
                         }
                     }
                 }
+            }
+
+            // Draw POI icons (not listed in poiRenderingOrder)
+            foreach ((var rendering, var position) in drawPoiIcons)
+            {
+                DrawIcon(gfx, rendering, position);
+            }
+
+            // Draw POI labels (not listed in poiRenderingOrder)
+            foreach ((var rendering, var position, var text, Color? color) in drawPoiLabels)
+            {
+                DrawText(gfx, rendering, position, text, color);
             }
         }
 
         private void DrawMonsters(Graphics gfx)
         {
+            var drawMonsterIcons = new List<(IconRendering, Types.UnitAny)>();
+            var drawMonsterLabels = new List<(PointOfInterestRendering, Point, string, Color?)>();
+
             RenderTarget renderTarget = gfx.GetRenderTarget();
 
+            foreach (var unitAny in _gameData.Monsters)
+            {
+                var mobRender = GetMonsterIconRendering(unitAny.MonsterData);
+
+                if (AreaExtensions.IsTown(_areaData.Area))
+                {
+                    var npc = (Npc)unitAny.TxtFileNo;
+                    if (NpcExtensions.IsTownsfolk(npc))
+                    {
+                        var npcRender = MapAssistConfiguration.Loaded.MapConfiguration.Npc;
+                        if (npcRender.CanDrawIcon())
+                        {
+                            drawMonsterIcons.Add((npcRender, unitAny));
+                            if (npcRender.CanDrawLabel())
+                            {
+                                drawMonsterLabels.Add((npcRender, unitAny.Position, NpcExtensions.Name(npc), npcRender.LabelColor));
+                            }
+                        }
+                    }
+                }
+                else if (mobRender.CanDrawIcon())
+                {
+                    drawMonsterIcons.Add((mobRender, unitAny));
+                }
+            }
+
+            // All Monster icons must be listed here for rendering
             var monsterRenderingOrder = new IconRendering[]
             {
+                MapAssistConfiguration.Loaded.MapConfiguration.Npc,
                 MapAssistConfiguration.Loaded.MapConfiguration.NormalMonster,
-                MapAssistConfiguration.Loaded.MapConfiguration.EliteMonster,
+                MapAssistConfiguration.Loaded.MapConfiguration.MinionMonster,
+                MapAssistConfiguration.Loaded.MapConfiguration.ChampionMonster,
                 MapAssistConfiguration.Loaded.MapConfiguration.UniqueMonster,
                 MapAssistConfiguration.Loaded.MapConfiguration.SuperUniqueMonster,
             };
 
             foreach (var mobRender in monsterRenderingOrder)
             {
-                foreach (var unitAny in _gameData.Monsters)
+                foreach ((var rendering, var unitAny) in drawMonsterIcons)
                 {
-                    if (mobRender == GetMonsterIconRendering(unitAny.MonsterData) && mobRender.CanDrawIcon())
+                    if (mobRender == rendering)
                     {
                         var monsterPosition = unitAny.Position;
 
-                        DrawIcon(gfx, mobRender, monsterPosition);
-                    }
-                }
-            }
-
-            foreach (var mobRender in monsterRenderingOrder)
-            {
-                foreach (var unitAny in _gameData.Monsters)
-                {
-                    if (mobRender == GetMonsterIconRendering(unitAny.MonsterData) && mobRender.CanDrawIcon())
-                    {
-                        var monsterPosition = unitAny.Position;
+                        DrawIcon(gfx, rendering, monsterPosition);
 
                         // Draw Monster Immunities on top of monster icon
                         var iCount = unitAny.Immunities.Count;
@@ -389,10 +411,24 @@ namespace MapAssist.Helpers
                     }
                 }
             }
+
+            foreach (var mobRender in monsterRenderingOrder)
+            {
+                foreach ((var rendering, var position, var text, Color? color) in drawMonsterLabels)
+                {
+                    if (mobRender == rendering)
+                    {
+                        DrawText(gfx, rendering, position, text, color);
+                    }
+                }
+            }
         }
 
         private void DrawItems(Graphics gfx)
         {
+            var drawItemIcons = new List<(IconRendering, Point)>();
+            var drawItemLabels = new List<(PointOfInterestRendering, Point, string, Color?)>();
+
             if (MapAssistConfiguration.Loaded.ItemLog.Enabled)
             {
                 foreach (var item in _gameData.Items)
@@ -407,7 +443,7 @@ namespace MapAssist.Helpers
                         var itemPosition = item.Position;
                         var render = MapAssistConfiguration.Loaded.MapConfiguration.Item;
 
-                        DrawIcon(gfx, render, itemPosition);
+                        drawItemIcons.Add((render, itemPosition));
                     }
                 }
 
@@ -422,23 +458,129 @@ namespace MapAssist.Helpers
 
                         if (item != null && Items.ItemColors.TryGetValue(item.ItemData.ItemQuality, out var color))
                         {
-                            var itemBaseName = Items.ItemName(item.TxtFileNo);
+                            var itemBaseName = Items.ItemNameDisplay(item.TxtFileNo);
 
-                            if (itemBaseName.EndsWith(" Rune") || itemBaseName.StartsWith("Key of "))
+							if (itemBaseName.EndsWith(" Rune") ||
+                                itemBaseName.StartsWith("Key of ") ||
+                                itemBaseName == "Diablos Horn" ||
+                                itemBaseName == "Baals Eye" ||
+                                itemBaseName == "Mephistos Brain" ||
+                                itemBaseName == "Pandemonium Key")
                             {
-                                color = Items.ItemColors[ItemQuality.CRAFT];
+                                color = Color.Orange;
                             }
 
-                            DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Item, item.Position, itemBaseName,
-                                color: color);
+                            else if (itemBaseName == "Blessed Crystal" ||
+                                   itemBaseName == "Regal Crystal" ||
+                                    itemBaseName == "Divine Crystal" ||
+                                    itemBaseName == "Worldstone Crystal" ||
+                                    itemBaseName == "Royal Prism" ||
+                                    itemBaseName == "Sacred Prism" ||
+                                    itemBaseName == "Chaos Prism" ||
+                                    itemBaseName == "Demonic Prism" ||
+                                    itemBaseName == "Angelic Prism" ||
+                                    itemBaseName == "Radiant Prism" ||
+                                    itemBaseName == "Enchanters Cube" ||
+                                    itemBaseName == "Diffusers Cube" ||
+                                    itemBaseName == "Alchemists Cube" ||
+                                    itemBaseName == "Strange Cube" ||
+                                    itemBaseName == "Mechanics Runestone" ||
+                                    itemBaseName == "Artisans Runestone" ||
+                                    itemBaseName == "Jewelers Runestone" ||
+                                    itemBaseName == "Masters Runestone" ||
+                                    itemBaseName == "Lesser Diviners Orb" ||
+                                    itemBaseName == "Greater Diviners Orb" ||
+                                    itemBaseName == "Lesser Arcanists Orb" ||
+                                    itemBaseName == "Greater Arcanists Orb" ||
+                                    itemBaseName == "Orb Of Ages" ||
+                                    itemBaseName == "Orb Of Eternity" ||
+                                    itemBaseName == "Orb Of Ethereality" ||
+                                    itemBaseName == "Orb Of Anu" ||
+                                    itemBaseName == "Obsidian Crystal" ||
+                                    itemBaseName == "Pristine Obsidian Crystal" ||
+                                    itemBaseName == "Pure Obsidian Crystal" ||
+                                    itemBaseName == "Azurite Crystal" ||
+                                    itemBaseName == "Pristine Azurite Crystal" ||
+                                    itemBaseName == "Pure Azurite Crystal" ||
+                                    itemBaseName == "Malachite Crystal" ||
+                                    itemBaseName == "Pristine Malachite Crystal" ||
+                                    itemBaseName == "Pure Malachite Crystal" ||
+                                    itemBaseName == "Proxima Crystal" ||
+                                    itemBaseName == "Pristine Proxima Crystal" ||
+                                    itemBaseName == "Pure Proxima Crystal" ||
+                                    itemBaseName == "Fletchers Glyph Schematic" ||
+                                    itemBaseName == "Acrobats Glyph Schematic" ||
+                                    itemBaseName == "Harpoonists Glyph Schematic" ||
+                                    itemBaseName == "Burning Glyph Schematic" ||
+                                    itemBaseName == "Sparking Glyph Schematic" ||
+                                    itemBaseName == "Chilling Glyph Schematic" ||
+                                    itemBaseName == "Hexing Glyph Schematic" ||
+                                    itemBaseName == "Fungal Glyph Schematic" ||
+                                    itemBaseName == "Graverobbers Glyph Schematic" ||
+                                    itemBaseName == "Captains Glyph Schematic" ||
+                                    itemBaseName == "Lion Branded Glyph Schematic" ||
+                                    itemBaseName == "Preservers Glyph Schematic" ||
+                                    itemBaseName == "Experts Glyph Schematic" ||
+                                    itemBaseName == "Fanatic Glyph Schematic" ||
+                                    itemBaseName == "Sounding Glyph Schematic" ||
+                                    itemBaseName == "Trainers Glyph Schematic" ||
+                                    itemBaseName == "Spiritual Glyph Schematic" ||
+                                    itemBaseName == "Natures Glyph Schematic" ||
+                                    itemBaseName == "Entrapping Glyph Schematic" ||
+                                    itemBaseName == "Mentalists Glyph Schematic" ||
+                                    itemBaseName == "Shogukushas Glyph Schematic")
+                            {
+
+                                color = Color.Green;
+                            }
+
+                            else if (itemBaseName == "Heavens Reliquary" ||
+                                    itemBaseName == "Hells Reliquary" ||
+                                    itemBaseName == "Infernal Vault" ||
+                                    itemBaseName == "Abaddons Vault" ||
+                                    itemBaseName == "Acherons Vault" ||
+                                    itemBaseName == "Ancient Vault" ||
+                                    itemBaseName == "Profane Vault" ||
+                                    itemBaseName == "Hellforged Vault" ||
+                                    itemBaseName == "Chest Of Flames" ||
+                                    itemBaseName == "Chest Of Ice" ||
+                                    itemBaseName == "Chest Of Storms" ||
+                                    itemBaseName == "Chest Of Corruption" ||
+                                    itemBaseName == "Lapidarys Cache" ||
+                                    itemBaseName == "Jewelers Coffer" ||
+                                    itemBaseName == "Strongbox Of Legends" ||
+                                    itemBaseName == "Enchanters Cache" ||
+                                    itemBaseName == "Masters Chest" ||
+                                    itemBaseName == "Diviners Chest" ||
+                                    itemBaseName == "Warlords Cache")
+
+                            {
+                                color = Color.Purple;
+
+                            }
+
+                            drawItemLabels.Add((MapAssistConfiguration.Loaded.MapConfiguration.Item, item.Position, itemBaseName, color));
                         }
                     }
                 }
+            }
+
+            foreach ((var rendering, var position) in drawItemIcons)
+            {
+                DrawIcon(gfx, rendering, position);
+            }
+
+            foreach ((var rendering, var position, var text, Color? color) in drawItemLabels)
+            {
+                DrawText(gfx, rendering, position, text, color);
             }
         }
 
         private void DrawPlayers(Graphics gfx)
         {
+            var drawPlayerIcons = new List<(IconRendering, Point)>();
+            var drawPlayerLabels = new List<(PointOfInterestRendering, Point, string, Color?)>();
+
             var areasToRender = new AreaData[] { _areaData };
             if (AreaExtensions.RequiresStitching(_areaData.Area))
             {
@@ -446,7 +588,7 @@ namespace MapAssist.Helpers
             }
 
             Dictionary<uint, Types.UnitAny> corpseList;
-            foreach(var player in _gameData.Players.Values)
+            foreach (var player in _gameData.Players.Values)
             {
                 if (player.IsCorpse && player.UnitId != _gameData.PlayerUnit.UnitId)
                 {
@@ -463,33 +605,31 @@ namespace MapAssist.Helpers
 
             if (GameMemory.Corpses.TryGetValue(_gameData.ProcessId, out corpseList) && corpseList.Values.Count > 0)
             {
-                var canDrawLabel = MapAssistConfiguration.Loaded.MapConfiguration.Corpse.CanDrawLabel();
-                var canDrawIcon = MapAssistConfiguration.Loaded.MapConfiguration.Corpse.CanDrawIcon();
-                var canDrawLine = MapAssistConfiguration.Loaded.MapConfiguration.Corpse.CanDrawLine();
+                var rendering = MapAssistConfiguration.Loaded.MapConfiguration.Corpse;
+                var canDrawLabel = rendering.CanDrawLabel();
+                var canDrawIcon = rendering.CanDrawIcon();
+                var canDrawLine = rendering.CanDrawLine();
                 var corpses = corpseList.Values.ToArray();
-
                 foreach (var corpse in corpses)
                 {
+                    if (corpse.Act.ActId != _gameData.PlayerUnit.Act.ActId) continue; // Don't show corpse if not in the same act
                     if (!areasToRender.Any(area => area.Area == corpse.InitialArea)) continue; // Don't show corpse if not in drawn areas
 
                     if (canDrawIcon)
                     {
-                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Corpse, corpse.Position);
+                        drawPlayerIcons.Add((rendering, corpse.Position));
                     }
-
                     if (canDrawLabel)
                     {
                         var poiPosition = MovePointInBounds(corpse.Position, _gameData.PlayerPosition);
-                        DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Corpse, poiPosition, corpse.Name + " (" + "Corpse" + ")"); //fix label when language is merged in
+                        drawPlayerLabels.Add((rendering, poiPosition, corpse.Name + " (Corpse)", null)); //fix label when language is merged in
                     }
-
                     if (canDrawLine && corpse.Name == _gameData.PlayerUnit.Name)
                     {
-                        var padding = canDrawLabel ? MapAssistConfiguration.Loaded.MapConfiguration.Corpse.LabelFontSize * 1.3f / 2 : 0; // 1.3f is the line height adjustment
+                        var padding = canDrawLabel ? rendering.LabelFontSize * 1.3f / 2 : 0; // 1.3f is the line height adjustment
                         var poiPosition = MovePointInBounds(corpse.Position, _gameData.PlayerPosition, padding);
-                        DrawLine(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Corpse, _gameData.PlayerPosition, poiPosition);
+                        DrawLine(gfx, rendering, _gameData.PlayerPosition, poiPosition);
                     }
-
                     if (_gameData.PlayerUnit.DistanceTo(corpse.Position) <= 40)
                     {
                         if (!_gameData.Players.TryGetValue(corpse.UnitId, out var player))
@@ -502,94 +642,123 @@ namespace MapAssist.Helpers
 
             if (_gameData.Roster.EntriesByUnitId.TryGetValue(_gameData.PlayerUnit.UnitId, out var myPlayerEntry))
             {
-                var canDrawIcon = MapAssistConfiguration.Loaded.MapConfiguration.Player.CanDrawIcon();
-                var canDrawLabel = MapAssistConfiguration.Loaded.MapConfiguration.Player.CanDrawLabel();
-                var canDrawNonPartyIcon = MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer.CanDrawIcon();
-                var canDrawNonPartyLabel = MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer.CanDrawLabel();
-                var canDrawHostileLine = MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer.CanDrawLine();
-                
                 foreach (var player in _gameData.Roster.List)
                 {
                     var myPlayer = player.UnitId == myPlayerEntry.UnitId;
                     var inMyParty = player.PartyID == myPlayerEntry.PartyID;
                     var playerName = player.Name;
 
+                    var canDrawIcon = MapAssistConfiguration.Loaded.MapConfiguration.Player.CanDrawIcon();
+                    var canDrawLabel = MapAssistConfiguration.Loaded.MapConfiguration.Player.CanDrawLabel();
+
                     if (_gameData.Players.TryGetValue(player.UnitId, out var playerUnit))
                     {
+                        if (!myPlayer && playerUnit.Act.ActId != _gameData.PlayerUnit.Act.ActId) continue; // Don't show player if not in the same act
                         if (!myPlayer && !areasToRender.Any(area => area.IncludesPoint(playerUnit.Position))) continue; // Don't show player if not in drawn areas
 
                         // use data from the unit table if available
                         if (playerUnit.InPlayerParty) // partyid is max if player is not in a party
                         {
-                            if (canDrawIcon)
+                            var rendering = myPlayer
+                                ? MapAssistConfiguration.Loaded.MapConfiguration.Player
+                                : MapAssistConfiguration.Loaded.MapConfiguration.PartyPlayer;
+
+                            var canDrawThisIcon = myPlayer
+                                ? canDrawIcon
+                                : MapAssistConfiguration.Loaded.MapConfiguration.PartyPlayer.CanDrawIcon();
+
+                            if (canDrawThisIcon)
                             {
-                                DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Player, playerUnit.Position);
+                                drawPlayerIcons.Add((rendering, playerUnit.Position));
                             }
-                            if (canDrawLabel && !myPlayer)
+
+                            var canDrawThisLabel = myPlayer
+                                ? canDrawLabel
+                                : MapAssistConfiguration.Loaded.MapConfiguration.PartyPlayer.CanDrawLabel();
+
+                            if (canDrawThisLabel && !myPlayer)
                             {
-                                DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Player, playerUnit.Position, playerName,
-                                    color: MapAssistConfiguration.Loaded.MapConfiguration.Player.LabelColor);
+                                drawPlayerLabels.Add((rendering, playerUnit.Position, playerName, rendering.LabelColor));
                             }
                         }
                         else
                         {
-                            if (!myPlayer)
+                            // not in my party
+                            var rendering = (myPlayer
+                                ? MapAssistConfiguration.Loaded.MapConfiguration.Player
+                                : (playerUnit.HostileToPlayer
+                                    ? MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer
+                                    : MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer));
+
+                            if (rendering.CanDrawIcon())
                             {
-                                if (canDrawNonPartyIcon)
-                                {
-                                    if (playerUnit.HostileToPlayer)
-                                    {
-                                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer, playerUnit.Position); //not my player and not in my party + hostile
-                                    } else
-                                    {
-                                        DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer, playerUnit.Position); //not my player and not in my party
-                                    }
-                                }
-                                if(canDrawHostileLine && playerUnit.HostileToPlayer)
-                                {
-                                    var padding = canDrawNonPartyLabel ? MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer.LabelFontSize * 1.3f / 2 : 0; // 1.3f is the line height adjustment
-                                    var poiPosition = MovePointInBounds(playerUnit.Position, _gameData.PlayerPosition, padding);
-                                    DrawLine(gfx, MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer, _gameData.PlayerPosition, poiPosition);
-                                }
-                            }
-                            else if (canDrawIcon)
-                            {
-                                DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Player, playerUnit.Position); //my player
+                                drawPlayerIcons.Add((rendering, playerUnit.Position));
                             }
 
-                            if (canDrawNonPartyLabel && !myPlayer)
+                            if (rendering.CanDrawLine() && playerUnit.HostileToPlayer)
                             {
-                                if (playerUnit.HostileToPlayer)
-                                {
-                                    DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer, playerUnit.Position, playerName,
-                                        color: MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer.LabelColor);
-                                } else
-                                {
-                                    DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer, playerUnit.Position, playerName,
-                                        color: MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer.LabelColor);
-                                }
+                                var padding = rendering.CanDrawLabel() ? MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer.LabelFontSize * 1.3f / 2 : 0; // 1.3f is the line height adjustment
+                                var poiPosition = MovePointInBounds(playerUnit.Position, _gameData.PlayerPosition, padding);
+                                DrawLine(gfx, MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer, _gameData.PlayerPosition, poiPosition);
+                            }
+
+                            if (rendering.CanDrawLabel() && !myPlayer)
+                            {
+                                drawPlayerLabels.Add((rendering, playerUnit.Position, playerName, rendering.LabelColor));
                             }
                         }
                     }
                     else
                     {
-                        if (!myPlayer && !areasToRender.Any(area => area.IncludesPoint(player.Position))) continue; // Don't show player if not in drawn areas
+                        if (!myPlayer && !areasToRender.Select(area => area.Area).Contains(player.Area)) continue; // Don't show player if not in drawn areas
 
                         // otherwise use the data from the roster
                         // only draw if in the same party, otherwise position/area data will not be up to date
                         if (inMyParty && player.PartyID < ushort.MaxValue)
                         {
+                            var rendering = MapAssistConfiguration.Loaded.MapConfiguration.PartyPlayer;
                             if (canDrawIcon)
                             {
-                                DrawIcon(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Player, player.Position);
+                                drawPlayerIcons.Add((rendering, player.Position));
                             }
 
                             if (canDrawLabel && !myPlayer)
                             {
-                                DrawText(gfx, MapAssistConfiguration.Loaded.MapConfiguration.Player, player.Position, playerName,
-                                    color: MapAssistConfiguration.Loaded.MapConfiguration.Player.LabelColor);
+                                drawPlayerLabels.Add((rendering, player.Position, playerName, rendering.LabelColor));
                             }
                         }
+                    }
+                }
+            }
+
+            // All Player icons must be listed here for rendering
+            var playersRenderingOrder = new IconRendering[]
+            {
+                MapAssistConfiguration.Loaded.MapConfiguration.Corpse,
+                MapAssistConfiguration.Loaded.MapConfiguration.NonPartyPlayer,
+                MapAssistConfiguration.Loaded.MapConfiguration.PartyPlayer,
+                MapAssistConfiguration.Loaded.MapConfiguration.Player,
+                MapAssistConfiguration.Loaded.MapConfiguration.HostilePlayer,
+            };
+
+            foreach (var renderOrder in playersRenderingOrder)
+            {
+                foreach ((var rendering, var position) in drawPlayerIcons)
+                {
+                    if (renderOrder == rendering)
+                    {
+                        DrawIcon(gfx, rendering, position);
+                    }
+                }
+            }
+
+            foreach (var renderOrder in playersRenderingOrder)
+            {
+                foreach ((var rendering, var position, var text, Color? color) in drawPlayerLabels)
+                {
+                    if (renderOrder == rendering)
+                    {
+                        DrawText(gfx, rendering, position, text, color);
                     }
                 }
             }
@@ -600,7 +769,7 @@ namespace MapAssist.Helpers
             RenderTarget renderTarget = gfx.GetRenderTarget();
             renderTarget.Transform = Matrix3x2.Identity.ToDXMatrix();
 
-            var buffImageScale = MapAssistConfiguration.Loaded.RenderingConfiguration.BuffSize;
+            var buffImageScale = (float)MapAssistConfiguration.Loaded.RenderingConfiguration.BuffSize;
             if (buffImageScale <= 0)
             {
                 return;
@@ -761,7 +930,7 @@ namespace MapAssist.Helpers
             }
 
             // Setup
-            var fontSize = MapAssistConfiguration.Loaded.ItemLog.LabelFontSize;
+            var fontSize = (float)MapAssistConfiguration.Loaded.ItemLog.LabelFontSize;
             var fontHeight = (fontSize + fontSize / 2f);
 
             // Item Log
@@ -773,13 +942,14 @@ namespace MapAssist.Helpers
                 Color fontColor;
                 if (item == null || !Items.ItemColors.TryGetValue(item.ItemData.ItemQuality, out fontColor))
                 {
+                    // Invalid item quality
                     continue;
                 }
 
-                var font = CreateFont(gfx, MapAssistConfiguration.Loaded.ItemLog.LabelFont, MapAssistConfiguration.Loaded.ItemLog.LabelFontSize);
+                var font = CreateFont(gfx, MapAssistConfiguration.Loaded.ItemLog.LabelFont, (float)MapAssistConfiguration.Loaded.ItemLog.LabelFontSize);
 
                 var isEth = (item.ItemData.ItemFlags & ItemFlags.IFLAG_ETHEREAL) == ItemFlags.IFLAG_ETHEREAL;
-                var itemBaseName = Items.ItemName(item.TxtFileNo);
+                var itemBaseName = Items.ItemNameDisplay(item.TxtFileNo);
                 var itemSpecialName = "";
                 var itemLabelExtra = "";
 
@@ -801,12 +971,104 @@ namespace MapAssist.Helpers
                     }
                 }
 
-                if (itemBaseName.EndsWith(" Rune") || itemBaseName.StartsWith("Key of "))
-                {
-                    fontColor = Items.ItemColors[ItemQuality.CRAFT];
-                }
+ if (itemBaseName.EndsWith(" Rune") ||
+                                itemBaseName.StartsWith("Key of ") ||
+                                itemBaseName == "Diablos Horn" ||
+                                itemBaseName == "Baals Eye" ||
+                                itemBaseName == "Mephistos Brain" ||
+                                itemBaseName == "Pandemonium Key")
+                            {
+                                fontColor = Color.Orange;
+                            }
 
-                var brush = CreateSolidBrush(gfx, fontColor, 1);
+                            else if (itemBaseName == "Blessed Crystal" ||
+                                   itemBaseName == "Regal Crystal" ||
+                                    itemBaseName == "Divine Crystal" ||
+                                    itemBaseName == "Worldstone Crystal" ||
+                                    itemBaseName == "Royal Prism" ||
+                                    itemBaseName == "Sacred Prism" ||
+                                    itemBaseName == "Chaos Prism" ||
+                                    itemBaseName == "Demonic Prism" ||
+                                    itemBaseName == "Angelic Prism" ||
+                                    itemBaseName == "Radiant Prism" ||
+                                    itemBaseName == "Enchanters Cube" ||
+                                    itemBaseName == "Diffusers Cube" ||
+                                    itemBaseName == "Alchemists Cube" ||
+                                    itemBaseName == "Strange Cube" ||
+                                    itemBaseName == "Mechanics Runestone" ||
+                                    itemBaseName == "Artisans Runestone" ||
+                                    itemBaseName == "Jewelers Runestone" ||
+                                    itemBaseName == "Masters Runestone" ||
+                                    itemBaseName == "Lesser Diviners Orb" ||
+                                    itemBaseName == "Greater Diviners Orb" ||
+                                    itemBaseName == "Lesser Arcanists Orb" ||
+                                    itemBaseName == "Greater Arcanists Orb" ||
+                                    itemBaseName == "Orb Of Ages" ||
+                                    itemBaseName == "Orb Of Eternity" ||
+                                    itemBaseName == "Orb Of Ethereality" ||
+                                    itemBaseName == "Orb Of Anu" ||
+                                    itemBaseName == "Obsidian Crystal" ||
+                                    itemBaseName == "Pristine Obsidian Crystal" ||
+                                    itemBaseName == "Pure Obsidian Crystal" ||
+                                    itemBaseName == "Azurite Crystal" ||
+                                    itemBaseName == "Pristine Azurite Crystal" ||
+                                    itemBaseName == "Pure Azurite Crystal" ||
+                                    itemBaseName == "Malachite Crystal" ||
+                                    itemBaseName == "Pristine Malachite Crystal" ||
+                                    itemBaseName == "Pure Malachite Crystal" ||
+                                    itemBaseName == "Proxima Crystal" ||
+                                    itemBaseName == "Pristine Proxima Crystal" ||
+                                    itemBaseName == "Pure Proxima Crystal" ||
+                                    itemBaseName == "Fletchers Glyph Schematic" ||
+                                    itemBaseName == "Acrobats Glyph Schematic" ||
+                                    itemBaseName == "Harpoonists Glyph Schematic" ||
+                                    itemBaseName == "Burning Glyph Schematic" ||
+                                    itemBaseName == "Sparking Glyph Schematic" ||
+                                    itemBaseName == "Chilling Glyph Schematic" ||
+                                    itemBaseName == "Hexing Glyph Schematic" ||
+                                    itemBaseName == "Fungal Glyph Schematic" ||
+                                    itemBaseName == "Graverobbers Glyph Schematic" ||
+                                    itemBaseName == "Captains Glyph Schematic" ||
+                                    itemBaseName == "Lion Branded Glyph Schematic" ||
+                                    itemBaseName == "Preservers Glyph Schematic" ||
+                                    itemBaseName == "Experts Glyph Schematic" ||
+                                    itemBaseName == "Fanatic Glyph Schematic" ||
+                                    itemBaseName == "Sounding Glyph Schematic" ||
+                                    itemBaseName == "Trainers Glyph Schematic" ||
+                                    itemBaseName == "Spiritual Glyph Schematic" ||
+                                    itemBaseName == "Natures Glyph Schematic" ||
+                                    itemBaseName == "Entrapping Glyph Schematic" ||
+                                    itemBaseName == "Mentalists Glyph Schematic" ||
+                                    itemBaseName == "Shogukushas Glyph Schematic")
+                            {
+
+                                fontColor = Color.Green;
+                            }
+
+                            else if (itemBaseName == "Heavens Reliquary" ||
+                                    itemBaseName == "Hells Reliquary" ||
+                                    itemBaseName == "Infernal Vault" ||
+                                    itemBaseName == "Abaddons Vault" ||
+                                    itemBaseName == "Acherons Vault" ||
+                                    itemBaseName == "Ancient Vault" ||
+                                    itemBaseName == "Profane Vault" ||
+                                    itemBaseName == "Hellforged Vault" ||
+                                    itemBaseName == "Chest Of Flames" ||
+                                    itemBaseName == "Chest Of Ice" ||
+                                    itemBaseName == "Chest Of Storms" ||
+                                    itemBaseName == "Chest Of Corruption" ||
+                                    itemBaseName == "Lapidarys Cache" ||
+                                    itemBaseName == "Jewelers Coffer" ||
+                                    itemBaseName == "Strongbox Of Legends" ||
+                                    itemBaseName == "Enchanters Cache" ||
+                                    itemBaseName == "Masters Chest" ||
+                                    itemBaseName == "Diviners Chest" ||
+                                    itemBaseName == "Warlords Cache")
+
+                            {
+                                fontColor = Color.Purple;
+
+                            }
 
                 switch (item.ItemData.ItemQuality)
                 {
@@ -817,6 +1079,8 @@ namespace MapAssist.Helpers
                         itemSpecialName = Items.SetName(item.TxtFileNo) + " ";
                         break;
                 }
+
+                var brush = CreateSolidBrush(gfx, fontColor, 1);
 
                 gfx.DrawText(font, brush, anchor.Add(0, i * fontHeight), itemLabelExtra + itemSpecialName + itemBaseName);
             }
@@ -848,7 +1112,8 @@ namespace MapAssist.Helpers
             position = Vector2.Transform(position.ToVector(), currentTransform.ToMatrix()).ToPoint();
 
             var fill = !rendering.IconShape.ToString().ToLower().EndsWith("outline");
-            var brush = CreateSolidBrush(gfx, rendering.IconColor);
+            var fillBrush = CreateSolidBrush(gfx, rendering.IconColor);
+            var outlineBrush = CreateSolidBrush(gfx, rendering.IconOutlineColor);
 
             var points = GetIconShape(rendering, equalScaling).Select(point => point.Add(position)).ToArray();
 
@@ -859,39 +1124,40 @@ namespace MapAssist.Helpers
                 switch (rendering.IconShape)
                 {
                     case Shape.Ellipse:
-                    case Shape.EllipseOutline:
-                        if (rendering.IconShape == Shape.Ellipse)
+                        if (rendering.IconColor.A > 0)
                         {
-                            gfx.FillEllipse(brush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * _scaleHeight / 2); // Divide by 2 because the parameter requires a radius
+                            gfx.FillEllipse(fillBrush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * _scaleHeight / 2); // Divide by 2 because the parameter requires a radius
                         }
-                        else
+                        
+                        if (rendering.IconOutlineColor.A > 0)
                         {
-                            gfx.DrawEllipse(brush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * _scaleHeight / 2, rendering.IconThickness); // Divide by 2 because the parameter requires a radius
+                            gfx.DrawEllipse(outlineBrush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * _scaleHeight / 2, rendering.IconThickness); // Divide by 2 because the parameter requires a radius
                         }
 
                         break;
                     case Shape.Portal:
-                        gfx.DrawEllipse(brush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * 2 * scaleWidth / 2, rendering.IconThickness); // Use scaleWidth so it doesn't shrink the height in overlay mode, allows portal to look the same in both modes
+                        if (rendering.IconColor.A > 0)
+                        {
+                            gfx.FillEllipse(fillBrush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * 2 * scaleWidth / 2); // Use scaleWidth so it doesn't shrink the height in overlay mode, allows portal to look the same in both modes
+                        }
 
-                        break;
-                    case Shape.Polygon:
-                        gfx.FillGeometry(geo, brush);
-
-                        break;
-                    case Shape.Cross:
-                        gfx.DrawGeometry(geo, brush, rendering.IconThickness);
+                        if (rendering.IconOutlineColor.A > 0)
+                        {
+                            gfx.DrawEllipse(outlineBrush, position, rendering.IconSize * scaleWidth / 2, rendering.IconSize * 2 * scaleWidth / 2, rendering.IconThickness); // Use scaleWidth so it doesn't shrink the height in overlay mode, allows portal to look the same in both modes
+                        }
 
                         break;
                     default:
                         if (points == null) break;
 
-                        if (fill)
+                        if (rendering.IconColor.A > 0)
                         {
-                            gfx.FillGeometry(geo, brush);
+                            gfx.FillGeometry(geo, fillBrush);
                         }
-                        else
+
+                        if (rendering.IconOutlineColor.A > 0)
                         {
-                            gfx.DrawGeometry(geo, brush, rendering.IconThickness);
+                            gfx.DrawGeometry(geo, outlineBrush, rendering.IconThickness);
                         }
 
                         break;
@@ -999,7 +1265,6 @@ namespace MapAssist.Helpers
             switch (render.IconShape)
             {
                 case Shape.Square:
-                case Shape.SquareOutline:
                     return new Point[]
                     {
                         new Point(0, 0),
@@ -1007,8 +1272,7 @@ namespace MapAssist.Helpers
                         new Point(render.IconSize, render.IconSize),
                         new Point(0, render.IconSize)
                     }.Select(point => point.Subtract(render.IconSize / 2f).Rotate(_rotateRadians).Multiply(scaleWidth, _scaleHeight)).ToArray();
-                case Shape.Ellipse:
-                case Shape.EllipseOutline: // Use a rectangle since that's effectively the same size and that's all this function is used for at the moment
+                case Shape.Ellipse: // Use a rectangle since that's effectively the same size and that's all this function is used for at the moment
                     return new Point[]
                     {
                         new Point(0, 0),
@@ -1059,19 +1323,24 @@ namespace MapAssist.Helpers
 
         private IconRendering GetMonsterIconRendering(MonsterData monsterData)
         {
+            if ((monsterData.MonsterType & MonsterTypeFlags.Champion) == MonsterTypeFlags.Champion)
+            {
+                return MapAssistConfiguration.Loaded.MapConfiguration.ChampionMonster;
+            }
+
             if ((monsterData.MonsterType & MonsterTypeFlags.SuperUnique) == MonsterTypeFlags.SuperUnique)
             {
                 return MapAssistConfiguration.Loaded.MapConfiguration.SuperUniqueMonster;
             }
 
+            if ((monsterData.MonsterType & MonsterTypeFlags.Minion) == MonsterTypeFlags.Minion)
+            {
+                return MapAssistConfiguration.Loaded.MapConfiguration.MinionMonster;
+            }
+
             if ((monsterData.MonsterType & MonsterTypeFlags.Unique) == MonsterTypeFlags.Unique)
             {
                 return MapAssistConfiguration.Loaded.MapConfiguration.UniqueMonster;
-            }
-
-            if (monsterData.MonsterType > 0)
-            {
-                return MapAssistConfiguration.Loaded.MapConfiguration.EliteMonster;
             }
 
             return MapAssistConfiguration.Loaded.MapConfiguration.NormalMonster;
@@ -1115,7 +1384,7 @@ namespace MapAssist.Helpers
 
         private (float, float) GetScaleRatios()
         {
-            var multiplier = 5.5f - MapAssistConfiguration.Loaded.RenderingConfiguration.ZoomLevel; // Hitting +/- should make the map bigger/smaller, respectively, like in overlay = false mode
+            var multiplier = 5.5f - (float)MapAssistConfiguration.Loaded.RenderingConfiguration.ZoomLevel; // Hitting +/- should make the map bigger/smaller, respectively, like in overlay = false mode
 
             if (!MapAssistConfiguration.Loaded.RenderingConfiguration.OverlayMode)
             {
@@ -1219,6 +1488,10 @@ namespace MapAssist.Helpers
                 {
                     cacheFonts[key] = _exocetFont.CreateFont(size);
                 }
+                else if (fontFamilyName.Equals("Formal 436"))
+                {
+                    cacheFonts[key] = _formalFont.CreateFont(size);
+                }
                 else
                 {
                     cacheFonts[key] = gfx.CreateFont(fontFamilyName, size);
@@ -1232,7 +1505,7 @@ namespace MapAssist.Helpers
         private SolidBrush CreateSolidBrush(Graphics gfx, Color color,
             float? opacity = null)
         {
-            if (opacity == null) opacity = MapAssistConfiguration.Loaded.RenderingConfiguration.IconOpacity;
+            if (opacity == null) opacity = (float)MapAssistConfiguration.Loaded.RenderingConfiguration.IconOpacity;
 
             var key = (color, opacity);
             if (!cacheBrushes.ContainsKey(key)) cacheBrushes[key] = gfx.CreateSolidBrush(color.SetOpacity((float)opacity).ToGameOverlayColor());
