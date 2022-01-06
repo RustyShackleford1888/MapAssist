@@ -333,16 +333,19 @@ namespace MapAssist.Helpers
             {
                 var mobRender = GetMonsterIconRendering(unitAny.MonsterData);
 
-                var npc = (Npc)unitAny.TxtFileNo;
-                if (NpcExtensions.IsTownsfolk(npc))
+                if (AreaExtensions.IsTown(_areaData.Area))
                 {
-                    var npcRender = MapAssistConfiguration.Loaded.MapConfiguration.Npc;
-                    if (npcRender.CanDrawIcon())
+                    var npc = (Npc)unitAny.TxtFileNo;
+                    if (NpcExtensions.IsTownsfolk(npc))
                     {
-                        drawMonsterIcons.Add((npcRender, unitAny));
-                        if (npcRender.CanDrawLabel())
+                        var npcRender = MapAssistConfiguration.Loaded.MapConfiguration.Npc;
+                        if (npcRender.CanDrawIcon())
                         {
-                            drawMonsterLabels.Add((npcRender, unitAny.Position, NpcExtensions.Name(npc), npcRender.LabelColor));
+                            drawMonsterIcons.Add((npcRender, unitAny));
+                            if (npcRender.CanDrawLabel())
+                            {
+                                drawMonsterLabels.Add((npcRender, unitAny.Position, NpcExtensions.Name(npc), npcRender.LabelColor));
+                            }
                         }
                     }
                 }
@@ -457,9 +460,103 @@ namespace MapAssist.Helpers
                         {
                             var itemBaseName = Items.ItemNameDisplay(item.TxtFileNo);
 
-                            if (itemBaseName.EndsWith(" Rune") || itemBaseName.StartsWith("Key of "))
+							if (itemBaseName.EndsWith(" Rune") ||
+                                itemBaseName.StartsWith("Key of ") ||
+                                itemBaseName == "Diablos Horn" ||
+                                itemBaseName == "Baals Eye" ||
+                                itemBaseName == "Mephistos Brain" ||
+                                itemBaseName == "Pandemonium Key")
                             {
-                                color = Items.ItemColors[ItemQuality.CRAFT];
+                                color = Color.Orange;
+                            }
+
+                            else if (itemBaseName == "Blessed Crystal" ||
+                                   itemBaseName == "Regal Crystal" ||
+                                    itemBaseName == "Divine Crystal" ||
+                                    itemBaseName == "Worldstone Crystal" ||
+                                    itemBaseName == "Royal Prism" ||
+                                    itemBaseName == "Sacred Prism" ||
+                                    itemBaseName == "Chaos Prism" ||
+                                    itemBaseName == "Demonic Prism" ||
+                                    itemBaseName == "Angelic Prism" ||
+                                    itemBaseName == "Radiant Prism" ||
+                                    itemBaseName == "Enchanters Cube" ||
+                                    itemBaseName == "Diffusers Cube" ||
+                                    itemBaseName == "Alchemists Cube" ||
+                                    itemBaseName == "Strange Cube" ||
+                                    itemBaseName == "Mechanics Runestone" ||
+                                    itemBaseName == "Artisans Runestone" ||
+                                    itemBaseName == "Jewelers Runestone" ||
+                                    itemBaseName == "Masters Runestone" ||
+                                    itemBaseName == "Lesser Diviners Orb" ||
+                                    itemBaseName == "Greater Diviners Orb" ||
+                                    itemBaseName == "Lesser Arcanists Orb" ||
+                                    itemBaseName == "Greater Arcanists Orb" ||
+                                    itemBaseName == "Orb Of Ages" ||
+                                    itemBaseName == "Orb Of Eternity" ||
+                                    itemBaseName == "Orb Of Ethereality" ||
+                                    itemBaseName == "Orb Of Anu" ||
+                                    itemBaseName == "Obsidian Crystal" ||
+                                    itemBaseName == "Pristine Obsidian Crystal" ||
+                                    itemBaseName == "Pure Obsidian Crystal" ||
+                                    itemBaseName == "Azurite Crystal" ||
+                                    itemBaseName == "Pristine Azurite Crystal" ||
+                                    itemBaseName == "Pure Azurite Crystal" ||
+                                    itemBaseName == "Malachite Crystal" ||
+                                    itemBaseName == "Pristine Malachite Crystal" ||
+                                    itemBaseName == "Pure Malachite Crystal" ||
+                                    itemBaseName == "Proxima Crystal" ||
+                                    itemBaseName == "Pristine Proxima Crystal" ||
+                                    itemBaseName == "Pure Proxima Crystal" ||
+                                    itemBaseName == "Fletchers Glyph Schematic" ||
+                                    itemBaseName == "Acrobats Glyph Schematic" ||
+                                    itemBaseName == "Harpoonists Glyph Schematic" ||
+                                    itemBaseName == "Burning Glyph Schematic" ||
+                                    itemBaseName == "Sparking Glyph Schematic" ||
+                                    itemBaseName == "Chilling Glyph Schematic" ||
+                                    itemBaseName == "Hexing Glyph Schematic" ||
+                                    itemBaseName == "Fungal Glyph Schematic" ||
+                                    itemBaseName == "Graverobbers Glyph Schematic" ||
+                                    itemBaseName == "Captains Glyph Schematic" ||
+                                    itemBaseName == "Lion Branded Glyph Schematic" ||
+                                    itemBaseName == "Preservers Glyph Schematic" ||
+                                    itemBaseName == "Experts Glyph Schematic" ||
+                                    itemBaseName == "Fanatic Glyph Schematic" ||
+                                    itemBaseName == "Sounding Glyph Schematic" ||
+                                    itemBaseName == "Trainers Glyph Schematic" ||
+                                    itemBaseName == "Spiritual Glyph Schematic" ||
+                                    itemBaseName == "Natures Glyph Schematic" ||
+                                    itemBaseName == "Entrapping Glyph Schematic" ||
+                                    itemBaseName == "Mentalists Glyph Schematic" ||
+                                    itemBaseName == "Shogukushas Glyph Schematic")
+                            {
+
+                                color = Color.Green;
+                            }
+
+                            else if (itemBaseName == "Heavens Reliquary" ||
+                                    itemBaseName == "Hells Reliquary" ||
+                                    itemBaseName == "Infernal Vault" ||
+                                    itemBaseName == "Abaddons Vault" ||
+                                    itemBaseName == "Acherons Vault" ||
+                                    itemBaseName == "Ancient Vault" ||
+                                    itemBaseName == "Profane Vault" ||
+                                    itemBaseName == "Hellforged Vault" ||
+                                    itemBaseName == "Chest Of Flames" ||
+                                    itemBaseName == "Chest Of Ice" ||
+                                    itemBaseName == "Chest Of Storms" ||
+                                    itemBaseName == "Chest Of Corruption" ||
+                                    itemBaseName == "Lapidarys Cache" ||
+                                    itemBaseName == "Jewelers Coffer" ||
+                                    itemBaseName == "Strongbox Of Legends" ||
+                                    itemBaseName == "Enchanters Cache" ||
+                                    itemBaseName == "Masters Chest" ||
+                                    itemBaseName == "Diviners Chest" ||
+                                    itemBaseName == "Warlords Cache")
+
+                            {
+                                color = Color.Purple;
+
                             }
 
                             drawItemLabels.Add((MapAssistConfiguration.Loaded.MapConfiguration.Item, item.Position, itemBaseName, color));
@@ -695,6 +792,7 @@ namespace MapAssist.Helpers
                 case BuffPosition.Bottom:
                     buffYPos = gfx.Height * .8f;
                     break;
+
             }
 
             var buffsByColor = new Dictionary<Color, List<Bitmap>>();
@@ -729,24 +827,6 @@ namespace MapAssist.Helpers
                         buffsByColor[buffColor].Add(CreateResourceBitmap(gfx, stateStr));
                         totalBuffs++;
                     }
-                }
-            }
-
-            if (buffAlignment == BuffPosition.Bottom && _gameData.MenuOpen.PotionBelt)
-            {
-                var potionTopLeft = new Point(
-                    0.5f * gfx.Width + 0.113f * gfx.Height + 1.17f,
-                    0.785f * gfx.Height - 4
-                );
-
-                var buffsBottomRight = new Point(
-                    gfx.Width / 2f + totalBuffs * imgDimensions / 2f,
-                    buffYPos + imgDimensions
-                );
-
-                if (potionTopLeft.X < buffsBottomRight.X && potionTopLeft.Y < buffsBottomRight.Y)
-                {
-                    return;
                 }
             }
 
@@ -891,10 +971,104 @@ namespace MapAssist.Helpers
                     }
                 }
 
-                if (itemBaseName.EndsWith(" Rune") || itemBaseName.StartsWith("Key of "))
-                {
-                    fontColor = Items.ItemColors[ItemQuality.CRAFT];
-                }
+ if (itemBaseName.EndsWith(" Rune") ||
+                                itemBaseName.StartsWith("Key of ") ||
+                                itemBaseName == "Diablos Horn" ||
+                                itemBaseName == "Baals Eye" ||
+                                itemBaseName == "Mephistos Brain" ||
+                                itemBaseName == "Pandemonium Key")
+                            {
+                                fontColor = Color.Orange;
+                            }
+
+                            else if (itemBaseName == "Blessed Crystal" ||
+                                   itemBaseName == "Regal Crystal" ||
+                                    itemBaseName == "Divine Crystal" ||
+                                    itemBaseName == "Worldstone Crystal" ||
+                                    itemBaseName == "Royal Prism" ||
+                                    itemBaseName == "Sacred Prism" ||
+                                    itemBaseName == "Chaos Prism" ||
+                                    itemBaseName == "Demonic Prism" ||
+                                    itemBaseName == "Angelic Prism" ||
+                                    itemBaseName == "Radiant Prism" ||
+                                    itemBaseName == "Enchanters Cube" ||
+                                    itemBaseName == "Diffusers Cube" ||
+                                    itemBaseName == "Alchemists Cube" ||
+                                    itemBaseName == "Strange Cube" ||
+                                    itemBaseName == "Mechanics Runestone" ||
+                                    itemBaseName == "Artisans Runestone" ||
+                                    itemBaseName == "Jewelers Runestone" ||
+                                    itemBaseName == "Masters Runestone" ||
+                                    itemBaseName == "Lesser Diviners Orb" ||
+                                    itemBaseName == "Greater Diviners Orb" ||
+                                    itemBaseName == "Lesser Arcanists Orb" ||
+                                    itemBaseName == "Greater Arcanists Orb" ||
+                                    itemBaseName == "Orb Of Ages" ||
+                                    itemBaseName == "Orb Of Eternity" ||
+                                    itemBaseName == "Orb Of Ethereality" ||
+                                    itemBaseName == "Orb Of Anu" ||
+                                    itemBaseName == "Obsidian Crystal" ||
+                                    itemBaseName == "Pristine Obsidian Crystal" ||
+                                    itemBaseName == "Pure Obsidian Crystal" ||
+                                    itemBaseName == "Azurite Crystal" ||
+                                    itemBaseName == "Pristine Azurite Crystal" ||
+                                    itemBaseName == "Pure Azurite Crystal" ||
+                                    itemBaseName == "Malachite Crystal" ||
+                                    itemBaseName == "Pristine Malachite Crystal" ||
+                                    itemBaseName == "Pure Malachite Crystal" ||
+                                    itemBaseName == "Proxima Crystal" ||
+                                    itemBaseName == "Pristine Proxima Crystal" ||
+                                    itemBaseName == "Pure Proxima Crystal" ||
+                                    itemBaseName == "Fletchers Glyph Schematic" ||
+                                    itemBaseName == "Acrobats Glyph Schematic" ||
+                                    itemBaseName == "Harpoonists Glyph Schematic" ||
+                                    itemBaseName == "Burning Glyph Schematic" ||
+                                    itemBaseName == "Sparking Glyph Schematic" ||
+                                    itemBaseName == "Chilling Glyph Schematic" ||
+                                    itemBaseName == "Hexing Glyph Schematic" ||
+                                    itemBaseName == "Fungal Glyph Schematic" ||
+                                    itemBaseName == "Graverobbers Glyph Schematic" ||
+                                    itemBaseName == "Captains Glyph Schematic" ||
+                                    itemBaseName == "Lion Branded Glyph Schematic" ||
+                                    itemBaseName == "Preservers Glyph Schematic" ||
+                                    itemBaseName == "Experts Glyph Schematic" ||
+                                    itemBaseName == "Fanatic Glyph Schematic" ||
+                                    itemBaseName == "Sounding Glyph Schematic" ||
+                                    itemBaseName == "Trainers Glyph Schematic" ||
+                                    itemBaseName == "Spiritual Glyph Schematic" ||
+                                    itemBaseName == "Natures Glyph Schematic" ||
+                                    itemBaseName == "Entrapping Glyph Schematic" ||
+                                    itemBaseName == "Mentalists Glyph Schematic" ||
+                                    itemBaseName == "Shogukushas Glyph Schematic")
+                            {
+
+                                fontColor = Color.Green;
+                            }
+
+                            else if (itemBaseName == "Heavens Reliquary" ||
+                                    itemBaseName == "Hells Reliquary" ||
+                                    itemBaseName == "Infernal Vault" ||
+                                    itemBaseName == "Abaddons Vault" ||
+                                    itemBaseName == "Acherons Vault" ||
+                                    itemBaseName == "Ancient Vault" ||
+                                    itemBaseName == "Profane Vault" ||
+                                    itemBaseName == "Hellforged Vault" ||
+                                    itemBaseName == "Chest Of Flames" ||
+                                    itemBaseName == "Chest Of Ice" ||
+                                    itemBaseName == "Chest Of Storms" ||
+                                    itemBaseName == "Chest Of Corruption" ||
+                                    itemBaseName == "Lapidarys Cache" ||
+                                    itemBaseName == "Jewelers Coffer" ||
+                                    itemBaseName == "Strongbox Of Legends" ||
+                                    itemBaseName == "Enchanters Cache" ||
+                                    itemBaseName == "Masters Chest" ||
+                                    itemBaseName == "Diviners Chest" ||
+                                    itemBaseName == "Warlords Cache")
+
+                            {
+                                fontColor = Color.Purple;
+
+                            }
 
                 switch (item.ItemData.ItemQuality)
                 {
